@@ -1,3 +1,7 @@
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+
 #image processing stuff
 def convert_ss_list(lisht): # to keep
     """ input format is : selective search format : xmin, ymin, w, h 
@@ -111,13 +115,33 @@ def compute_iou(box_p, box_gt):
         return 0, None
 
 
-def matching_boxes(liste_p, liste_gt): #objectness
+def matching_boxes(liste_p, liste_gt): #objectness 
+    """pour une img, liste_p est une liste des coord de roi, liste_gt une liste des coord des GT associée
+    cette fn s'applique pour ces deux listes, output est une liste des intersections au dela d'un objectness threshold fixé,
+    une autre si l'inter est negligeable ou nulle"""
     matches = []
-    for idx, i in enumerate(liste_p): #expect probably more pred than gt boxes
-        for idx2, j in enumerate(liste_gt):
+    back = []
+    indices_p = []
+    for idx, i in enumerate(liste_p): #expect often more pred than gt boxes
+        for idx2, j in enumerate(liste_gt): #on recupère les idx pour mieux situer les examples
             if compute_iou(i, j)[0] >= 0.3 :
-                matches.append(((idx+1, idx2+1), np.round(compute_iou(i, j)[0], 2), compute_iou(i, j)[-1]))
-    return matches
+                matches.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), compute_iou(i, j)[-1]))
+                indices_p.append(idx)
+            else:
+                pass
+    idx = None
+    idx2 = None
+    indices_p_back = []
+    for idx, k in enumerate(liste_p): 
+        if idx not in (indices_p): #on veut que les background excluent les pred qui avaient eu un match
+            for idx2, l in enumerate(liste_gt): 
+                if idx not in indices_p_back: #et les background combinaisons de la même pred et une gt bbox
+                    back.append(((idx, idx2), np.round(compute_iou(k, l)[0], 2), k))
+                    indices_p_back.append(idx)
+    return matches, random.sample(back, 3)
+
+
+
 
 
 
