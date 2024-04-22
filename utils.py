@@ -1,8 +1,20 @@
 import random
 import numpy as np
-import matplotlib.pyplot as plt
 
 #image processing stuff
+
+def convert_label_list(*tuple): # to keep
+    """ input format is : voc 2007 format  
+    output format is x_mid, y_mid, w, h"""
+    ymin, xmin, ymax, xmax = tuple
+    w = xmax - xmin
+    h = ymax - ymin
+    aire = (ymax - ymin) * (xmax - xmin)
+    if aire > 1e-3:
+        return (xmin + w/2, ymin + h/2, w, h)
+    else:
+        pass
+
 def convert_ss_list(lisht): # to keep
     """ input format is : selective search format : xmin, ymin, w, h 
     output format is x_mid, y_mid, w, h"""
@@ -25,10 +37,10 @@ def compute_anchors(imag):
     by design, we create square anchors so its easier to feed into AlexNet later"""
     y, x, _ = imag.shape
     une_liste = []
-    picks = random.choices(range(1, x+1), k=10)
-    picks2 = random.choices(range(1, y+1), k=10)
+    picks = random.choices(range(1, x+1), k=14)
+    picks2 = random.choices(range(1, y+1), k=14)
     for i in zip(picks, picks2):
-        une_liste.append(i + (int(np.round((x+y)/6)), int(np.round((x+y)/6))))
+        une_liste.append(i + (int(np.round((x+y)/5)), int(np.round((x+y)/5))))
     return une_liste
 
 
@@ -115,6 +127,8 @@ def compute_iou(box_p, box_gt):
         return 0, None
 
 
+#this fucntion can be optimized a lot but for now that's the best that works
+
 def matching_boxes(liste_p, liste_gt): #objectness 
     """pour une img, liste_p est une liste des coord de roi, liste_gt une liste des coord des GT associée
     cette fn s'applique pour ces deux listes, output est une liste des intersections au dela d'un objectness threshold fixé,
@@ -123,23 +137,26 @@ def matching_boxes(liste_p, liste_gt): #objectness
     back = []
     indices_p = []
     for idx, i in enumerate(liste_p): #expect often more pred than gt boxes
-        for idx2, j in enumerate(liste_gt): #on recupère les idx pour mieux situer les examples
-            if compute_iou(i, j)[0] >= 0.3 :
-                matches.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), compute_iou(i, j)[-1]))
+        for idx2, j in enumerate(liste_gt): #idx2 donne le rang du label
+            if compute_iou(i, j)[0] >= 0.35 : #on a rarement de bon IoU donc le seuil, on le met bas
+                matches.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), i)) #on recupere i cad : coord de la pred
                 indices_p.append(idx)
             else:
                 pass
     idx = None
     idx2 = None
-    indices_p_back = []
+    indices_back = []
     for idx, k in enumerate(liste_p): 
         if idx not in (indices_p): #on veut que les background excluent les pred qui avaient eu un match
             for idx2, l in enumerate(liste_gt): 
-                if idx not in indices_p_back: #et les background combinaisons de la même pred et une gt bbox
-                    back.append(((idx, idx2), np.round(compute_iou(k, l)[0], 2), k))
-                    indices_p_back.append(idx)
-    return matches, random.sample(back, 3)
-
+                if idx not in indices_back: 
+                    if compute_iou(k, l)[0] < 0.1 :#et les background combinaisons de la même pred et une autre gt bbox
+                        back.append(((idx, idx2), np.round(compute_iou(k, l)[0], 2), k))
+                        indices_back.append(idx)
+    if len(back) >= 2:
+        return matches, random.sample(back, 1)
+    else:
+        return matches, back
 
 
 
