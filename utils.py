@@ -37,8 +37,8 @@ def compute_anchors(imag):
     by design, we create square anchors so its easier to feed into AlexNet later"""
     y, x, _ = imag.shape
     une_liste = []
-    picks = random.choices(range(1, x+1), k=14)
-    picks2 = random.choices(range(1, y+1), k=14)
+    picks = random.choices(range(1, x+1), k=16)
+    picks2 = random.choices(range(1, y+1), k=16)
     for i in zip(picks, picks2):
         une_liste.append(i + (int(np.round((x+y)/5)), int(np.round((x+y)/5))))
     return une_liste
@@ -55,7 +55,7 @@ def produce_crop_list(imag, lisht):
     ultimate_list = []
     for i in lisht: #for anchor
         x_mid, y_mid, w, h = i
-        # the if/else sequence is clip+remove outslying coordinates of bboxes to prevent errors etc
+        # the if/else sequence is clip+remove outlying coordinates of bboxes to prevent errors etc
         if y_mid - h/2 >= 0 : 
             ymin = y_mid - h/2
         else: #box qui deborde en haut image
@@ -74,18 +74,18 @@ def produce_crop_list(imag, lisht):
             xmax = x - 1e-3
         #cropping : note from here we need to ditch using xmid, ymid, w, h since we dont know if box been clipped or not
         if 1 - 1e-3 <= (ymax - ymin) / (xmax - xmin) <= 1 + 1e-3:
-            crop_img = imag.copy()[int(ymin):int(ymax), int(xmin):int(xmax)]
+            crop_img = np.array(imag).copy()[int(ymin):int(ymax), int(xmin):int(xmax)]
             coord = ((xmax+xmin)/2, (ymax+ymin)/2, xmax - xmin, ymax-ymin)
             
         elif (ymax - ymin) / (xmax - xmin) > 1: #rectangle vertical
             #on trace comme un cercle de rayon w/2 pour reconstruire un carré : midpoint doit pas bouger selon axe des y
-            crop_img = imag.copy()[int((ymax+ymin)/2 - (xmax-xmin)/2):int((ymax+ymin)/2 + (xmax-xmin)/2), int(xmin):int(xmax)]
+            crop_img = np.array(imag).copy()[int((ymax+ymin)/2 - (xmax-xmin)/2):int((ymax+ymin)/2 + (xmax-xmin)/2), int(xmin):int(xmax)]
             
             coord = ((xmax+xmin)/2, (ymax+ymin)/2, xmax - xmin, xmax - xmin) # xmid est recalculé-modifié
        
         elif(ymax - ymin) / (xmax - xmin) < 1: #rectangle horizontal : midpoint doit pas bouger selon les x
             
-            crop_img = imag.copy()[int(ymin):int(ymax), int((xmax+xmin)/2 - (ymax-ymin)/2):int((xmax+xmin)/2 + (ymax-ymin)/2)]
+            crop_img = np.array(imag).copy()[int(ymin):int(ymax), int((xmax+xmin)/2 - (ymax-ymin)/2):int((xmax+xmin)/2 + (ymax-ymin)/2)]
             coord = ((xmax+xmin)/2, (ymax+ymin)/2, ymax-ymin, ymax-ymin) # ymid est recalculé
             
         elif (ymax - ymin) * (xmax - xmin) < 1e-3:
@@ -105,13 +105,12 @@ def compute_iou(box_p, box_gt):
     x_gt, y_gt, w_gt, h_gt = box_gt
     aire_gt = h_gt * w_gt
     #if no intersection
-    if (y_p - h_p/2) > (y_gt + h_gt/2)\
+    if ((y_p - h_p/2) > (y_gt + h_gt/2)\
     or (y_gt - h_gt/2) > (y_p + h_p/2)\
     or (x_p - w_p/2) > (x_gt + w_gt/2)\
-    or (x_gt - w_gt/2) > (x_p + w_p/2):
+    or (x_gt - w_gt/2) > (x_p + w_p/2)):
         IoU = 0
-    else :
-        
+    else : 
         inter = (min(y_p + h_p/2, y_gt + h_gt/2) - max(y_p - h_p/2, y_gt - h_gt/2))\
                  * (min(x_p + w_p/2, x_gt + w_gt/2) - max(x_p - w_p/2, x_gt - w_gt/2))
         IoU = float(inter / (aire_p + aire_gt - inter))
@@ -121,40 +120,34 @@ def compute_iou(box_p, box_gt):
         min(x_p + w_p/2, x_gt + w_gt/2) - max(x_p - w_p/2, x_gt - w_gt/2),\
         min(y_p + h_p/2, y_gt + h_gt/2) - max(y_p - h_p/2, y_gt - h_gt/2)
         
-    if IoU > 0:
+    if IoU > 0.0:
         return IoU, coord_inter
     else:
         return 0, None
 
 
-#this fucntion can be optimized a lot but for now that's the best that works
 
-def matching_boxes(liste_p, liste_gt): #objectness 
+def matching_boxes(liste_p, liste_gt, iou_match=.4): #objectness 
     """pour une img, liste_p est une liste des coord de roi, liste_gt une liste des coord des GT associée
     cette fn s'applique pour ces deux listes, output est une liste des intersections au dela d'un objectness threshold fixé,
     une autre si l'inter est negligeable ou nulle"""
     matches = []
     back = []
     indices_p = []
+    indices_back = []
     for idx, i in enumerate(liste_p): #expect often more pred than gt boxes
         for idx2, j in enumerate(liste_gt): #idx2 donne le rang du label
-            if compute_iou(i, j)[0] >= 0.35 : #on a rarement de bon IoU donc le seuil, on le met bas
+            if compute_iou(i, j)[0] >= iou_match : #on a rarement de bon IoU donc le seuil, on le met bas
                 matches.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), i)) #on recupere i cad : coord de la pred
                 indices_p.append(idx)
+            elif compute_iou(i, j)[0] == 0 :#et les background combinaisons de la même pred et une autre gt bbox
+                back.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), i))
+                indices_back.append(idx)
             else:
                 pass
-    idx = None
-    idx2 = None
-    indices_back = []
-    for idx, k in enumerate(liste_p): 
-        if idx not in (indices_p): #on veut que les background excluent les pred qui avaient eu un match
-            for idx2, l in enumerate(liste_gt): 
-                if idx not in indices_back: 
-                    if compute_iou(k, l)[0] < 0.1 :#et les background combinaisons de la même pred et une autre gt bbox
-                        back.append(((idx, idx2), np.round(compute_iou(k, l)[0], 2), k))
-                        indices_back.append(idx)
+                
     if len(back) >= 2:
-        return matches, random.sample(back, 1)
+        return matches, random.sample(back, 2)
     else:
         return matches, back
 
