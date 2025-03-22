@@ -3,31 +3,27 @@ import numpy as np
 
 #image processing stuff
 
-def convert_label_list(*tuple): # to keep
+def convert_label_list(*t_uplet): # to keep
     """ input format is : voc 2007 format  
     output format is x_mid, y_mid, w, h"""
-    ymin, xmin, ymax, xmax = tuple
+    ymin, xmin, ymax, xmax = t_uplet
     w = xmax - xmin
     h = ymax - ymin
     aire = (ymax - ymin) * (xmax - xmin)
     if aire > 1e-3:
         return (xmin + w/2, ymin + h/2, w, h)
-    else:
-        pass
 
-def convert_ss_list(lisht): # to keep
+def convert_ss_list(lisst): # not used in the end
     """ input format is : selective search format : xmin, ymin, w, h 
     output format is x_mid, y_mid, w, h"""
     n_list = []
-    for i in lisht:
+    for i in lisst:
         xmin, ymin, w, h = i
         xmax = xmin + w
         ymax = ymin + h
         aire = (ymax - ymin) * (xmax - xmin)
         if aire > 1e-3:
             n_list.append((xmin + w/2, ymin + h/2, w, h))
-        else:
-            pass
     return n_list
 
 
@@ -37,10 +33,14 @@ def compute_anchors(imag):
     by design, we create square anchors so its easier to feed into AlexNet later"""
     y, x, _ = imag.shape
     une_liste = []
-    picks = random.choices(range(1, x+1), k=16)
-    picks2 = random.choices(range(1, y+1), k=16)
-    for i in zip(picks, picks2):
-        une_liste.append(i + (int(np.round((x+y)/5)), int(np.round((x+y)/5))))
+    picks = random.choices(range(x+1), k=16)
+    picks2 = random.choices(range(y+1), k=16)
+    for i, e in enumerate(zip(picks, picks2)): # i is a doulblet
+        if i % 2 == 0:
+            # arbitrary choice that boxes will of dimensions (x+y)/5 x (x+y)/5
+            une_liste.append(e + (int(np.round((x+y)/6)), int(np.round((x+y)/6))))
+        else:
+            une_liste.append(e + (int(np.round((x+y)/4)), int(np.round((x+y)/4))))
     return une_liste
 
 
@@ -48,7 +48,7 @@ def compute_anchors(imag):
 def produce_crop_list(imag, lisht):
     """2nd argument "lisht" is a list of box coordinates in following format : (xmid, ymid, weight, height)
     returns a list of images
-    Don't be puzzled! since we clip fraction of boxes outside img, we need use xmax, ymax when calculating output"""
+    Don't be puzzled! since we clip fraction of boxes outside img, we use xmax, ymax when calculating output"""
     y, x, _ = imag.shape
     crop_coord = []
     liste_crop = []
@@ -99,35 +99,45 @@ def produce_crop_list(imag, lisht):
 
 #some object detection specific functions
 def compute_iou(box_p, box_gt):
+    """ this function takes two bbox coordinates 4-uplets
+    input bbox coordinates format is in xmin, ymin, width, height format
     
-    x_p, y_p, w_p, h_p = box_p
-    aire_p = h_p * w_p # midpoint not needed BTW
+    """
+    
+    x_p, y_p, w_p, h_p = box_p #coord of predicted box
     x_gt, y_gt, w_gt, h_gt = box_gt
+    aire_p = h_p * w_p # midpoint not needed BTW
     aire_gt = h_gt * w_gt
+
+    x_inter_min = max(x_p - w_p/2, x_gt - w_gt/2)
+    x_inter_max = min(x_p + w_p/2, x_gt + w_gt/2)
+    y_inter_min = max(y_p - h_p/2, y_gt - h_gt/2)
+    y_inter_max = min(y_p + h_p/2, y_gt + h_gt/2)
+    
     #if no intersection
     if ((y_p - h_p/2) > (y_gt + h_gt/2)\
     or (y_gt - h_gt/2) > (y_p + h_p/2)\
     or (x_p - w_p/2) > (x_gt + w_gt/2)\
     or (x_gt - w_gt/2) > (x_p + w_p/2)):
         IoU = 0
-    else : 
-        inter = (min(y_p + h_p/2, y_gt + h_gt/2) - max(y_p - h_p/2, y_gt - h_gt/2))\
-                 * (min(x_p + w_p/2, x_gt + w_gt/2) - max(x_p - w_p/2, x_gt - w_gt/2))
+    else : # if intersection
+        inter = (y_inter_max - y_inter_min)\
+                 * (x_inter_max - x_inter_min)
         IoU = float(inter / (aire_p + aire_gt - inter))
         
-        coord_inter = (min(x_p + w_p/2, x_gt + w_gt/2) + max(x_p - w_p/2, x_gt - w_gt/2))/2,\
-        (min(y_p + h_p/2, y_gt + h_gt/2) + max(y_p - h_p/2, y_gt - h_gt/2))/2,\
-        min(x_p + w_p/2, x_gt + w_gt/2) - max(x_p - w_p/2, x_gt - w_gt/2),\
-        min(y_p + h_p/2, y_gt + h_gt/2) - max(y_p - h_p/2, y_gt - h_gt/2)
+        coord_inter = (x_inter_min + x_inter_max)/2,\
+        (y_inter_min + y_inter_max)/2,\
+        x_inter_max - x_inter_min,\
+        y_inter_max - y_inter_min
         
-    if IoU > 0.0:
+    if IoU > 1e-5:
         return IoU, coord_inter
     else:
         return 0, None
 
 
 
-def matching_boxes(liste_p, liste_gt, iou_match=.4): #objectness 
+def matching_boxes(liste_p, liste_gt, iou_match=.2): #objectness 
     """pour une img, liste_p est une liste des coord de roi, liste_gt une liste des coord des GT associée
     cette fn s'applique pour ces deux listes, output est une liste des intersections au dela d'un objectness threshold fixé,
     une autre si l'inter est negligeable ou nulle"""
@@ -137,7 +147,7 @@ def matching_boxes(liste_p, liste_gt, iou_match=.4): #objectness
     indices_back = []
     for idx, i in enumerate(liste_p): #expect often more pred than gt boxes
         for idx2, j in enumerate(liste_gt): #idx2 donne le rang du label
-            if compute_iou(i, j)[0] >= iou_match : #on a rarement de bon IoU donc le seuil, on le met bas
+            if compute_iou(i, j)[0] >= iou_match : #on a rarement de bon IoU donc on met le seuil bas
                 matches.append(((idx, idx2), np.round(compute_iou(i, j)[0], 2), i)) #on recupere i cad : coord de la pred
                 indices_p.append(idx)
             elif compute_iou(i, j)[0] == 0 :#et les background combinaisons de la même pred et une autre gt bbox
